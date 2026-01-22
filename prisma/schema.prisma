@@ -1,0 +1,208 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  password      String?   // Per auth credentials
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // RBAC
+  roleId        String?
+  role          Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  chats         Chat[]
+  messages      Message[]
+  votes         Vote[]
+  folders       Folder[]
+  agents        Agent[]
+  accounts      Account[] // Per OAuth providers
+  sessions      Session[]
+  auditLogs     AuditLog[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  chats     Chat[]
+}
+
+model Chat {
+  id          String     @id @default(cuid())
+  title       String
+  visibility  Visibility @default(PRIVATE)
+  isArchived  Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  folderId    String?
+  folder      Folder?    @relation(fields: [folderId], references: [id], onDelete: SetNull)
+
+  agentId     String?
+  agent       Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
+
+  messages    Message[]
+  votes       Vote[]
+}
+
+model Message {
+  id          String      @id @default(cuid())
+  role        MessageRole
+  content     String      @db.Text
+  createdAt   DateTime    @default(now())
+
+  // Tools configuration
+  webSearch       Boolean @default(false)
+  deepReasoning   Boolean @default(false)
+
+  // Attachments stored as JSON
+  attachments Json?
+
+  chatId      String
+  chat        Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  userId      String?
+  user        User?       @relation(fields: [userId], references: [id])
+
+  votes       Vote[]
+}
+
+model Vote {
+  id          String   @id @default(cuid())
+  isUpvoted   Boolean
+  createdAt   DateTime @default(now())
+
+  messageId   String
+  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  chatId      String
+  chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@unique([messageId, userId])
+}
+
+
+model Agent {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  instructions String   @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  chats        Chat[]
+}
+
+enum Visibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+// ============================================
+// RBAC - Role Based Access Control
+// ============================================
+
+model Role {
+  id          String       @id @default(cuid())
+  name        String       @unique  // "admin", "moderator", "user"
+  description String?
+  permissions Permission[]
+  users       User[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Permission {
+  id          String   @id @default(cuid())
+  name        String   @unique  // "users.read", "users.write", "chats.delete", etc.
+  description String?
+  roles       Role[]
+  createdAt   DateTime @default(now())
+}
+
+// ============================================
+// Admin - Audit Log & System Settings
+// ============================================
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String   // "user.created", "chat.deleted", etc.
+  target    String?  // ID dell'entità modificata
+  targetType String? // "user", "chat", "agent", etc.
+  metadata  Json?    // Dettagli aggiuntivi
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([action])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  key         String   @unique  // "default_model", "max_tokens", etc.
+  value       Json
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
