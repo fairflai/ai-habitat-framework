@@ -106,7 +106,7 @@ export function useChatSidebarLogic() {
   )
 
   const handleAgentSubmit = useCallback(
-    async (data: { name: string; description: string; instructions: string }) => {
+    async (data: { name: string; description: string; instructions: string; isA2A?: boolean; a2aUrl?: string; a2aBearerToken?: string }) => {
       try {
         if (editingAgent) {
           const updated = await updateAgentMutation.mutateAsync({ id: editingAgent.id, data })

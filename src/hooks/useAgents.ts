@@ -1,29 +1,53 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Agent } from '@/types'
 
+interface AgentCreateData {
+  name: string
+  description: string
+  instructions: string
+  isA2A?: boolean
+  a2aUrl?: string
+  a2aBearerToken?: string
+}
+
+interface AgentUpdateData {
+  name?: string
+  description?: string
+  instructions?: string
+  isA2A?: boolean
+  a2aUrl?: string
+  a2aBearerToken?: string
+}
+
 async function fetchAgents(): Promise<Agent[]> {
   const res = await fetch('/api/agents')
   if (!res.ok) throw new Error('Failed to fetch agents')
   return res.json()
 }
 
-async function createAgent(data: { name: string; description: string; instructions: string }): Promise<Agent> {
+async function createAgent(data: AgentCreateData): Promise<Agent> {
   const res = await fetch('/api/agents', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error('Failed to create agent')
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || 'Failed to create agent')
+  }
   return res.json()
 }
 
-async function updateAgent({ id, data }: { id: string; data: { name: string; description: string; instructions: string } }): Promise<Agent> {
+async function updateAgent({ id, data }: { id: string; data: AgentUpdateData }): Promise<Agent> {
   const res = await fetch(`/api/agents/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error('Failed to update agent')
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    throw new Error(body.error || 'Failed to update agent')
+  }
   return res.json()
 }
 

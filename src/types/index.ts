@@ -16,7 +16,7 @@ export interface User extends PrismaUser {
 }
 
 export interface Agent extends PrismaAgent {
-  // any frontend-specific extensions?
+  // A2A remote agent fields are on PrismaAgent now (isA2A, a2aUrl, a2aAgentCard)
 }
 
 export interface Folder extends PrismaFolder {

@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Bot,
+  Globe,
+  Shield,
   MoreHorizontal,
   Eye,
   Trash2,
@@ -38,6 +40,9 @@ interface Agent {
   name: string
   description: string | null
   instructions: string
+  isA2A: boolean
+  a2aUrl: string | null
+  a2aBearerToken: string | null
   createdAt: string
   user: { id: string; name: string | null; email: string }
   _count: { chats: number }
@@ -141,6 +146,7 @@ export default function AdminAgentsPage() {
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="px-4 py-3 text-left text-sm font-medium">Agent</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium">Type</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Owner</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Chats</th>
                   <th className="px-4 py-3 text-left text-sm font-medium">Created</th>
@@ -156,6 +162,27 @@ export default function AdminAgentsPage() {
                         <div className="text-sm text-muted-foreground line-clamp-1">
                           {agent.description || 'No description'}
                         </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex flex-col gap-1">
+                        {agent.isA2A ? (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300 w-fit">
+                            <Globe className="h-3 w-3" />
+                            A2A
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-800 px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-400 w-fit">
+                            <Bot className="h-3 w-3" />
+                            Local
+                          </span>
+                        )}
+                        {agent.isA2A && agent.a2aBearerToken && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300 w-fit">
+                            <Shield className="h-3 w-3" />
+                            Auth
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3">
@@ -216,17 +243,51 @@ export default function AdminAgentsPage() {
         </>
       )}
 
-      {/* View Instructions Dialog */}
+      {/* View Agent Details Dialog */}
       <Dialog open={!!viewAgent} onOpenChange={(open) => !open && setViewAgent(null)}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>{viewAgent?.name}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              {viewAgent?.name}
+              {viewAgent?.isA2A && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-xs font-medium text-blue-700 dark:text-blue-300">
+                  <Globe className="h-3 w-3" />
+                  A2A Remote
+                </span>
+              )}
+            </DialogTitle>
             <DialogDescription>{viewAgent?.description || 'No description'}</DialogDescription>
           </DialogHeader>
+
+          {viewAgent?.isA2A && viewAgent.a2aUrl && (
+            <div className="rounded-md border bg-muted/50 p-3 text-sm space-y-1">
+              <div>
+                <span className="text-muted-foreground">Remote URL:</span>{' '}
+                <span className="font-mono text-xs">{viewAgent.a2aUrl}</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">Authentication:</span>{' '}
+                {viewAgent.a2aBearerToken ? (
+                  <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-300">
+                    <Shield className="h-3 w-3" />
+                    Bearer Token configured
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">None</span>
+                )}
+              </div>
+            </div>
+          )}
+
           <ScrollArea className="max-h-96">
-            <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 text-sm">
-              {viewAgent?.instructions}
-            </pre>
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium text-muted-foreground">
+                {viewAgent?.isA2A ? 'Additional Context' : 'Instructions'}
+              </h4>
+              <pre className="whitespace-pre-wrap rounded-md bg-muted p-4 text-sm">
+                {viewAgent?.instructions || '(none)'}
+              </pre>
+            </div>
           </ScrollArea>
           <DialogFooter>
             <Button variant="outline" onClick={() => setViewAgent(null)}>

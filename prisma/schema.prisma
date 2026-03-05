@@ -125,12 +125,19 @@ model Vote {
 }
 
 model Agent {
-  id           String   @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
   description  String?
-  instructions String   @db.Text
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  instructions String    @db.Text
+
+  // A2A (Agent2Agent) remote agent support
+  isA2A          Boolean   @default(false)
+  a2aUrl         String?   // Remote agent base URL (e.g. https://remote-agent.example.com/)
+  a2aAgentCard   Json?     // Cached Agent Card from /.well-known/agent.json
+  a2aBearerToken String?   // Optional Bearer token for authenticated A2A agents
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
