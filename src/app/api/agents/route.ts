@@ -38,16 +38,17 @@ export async function POST(req: Request) {
     const body = await req.json()
     const { name, description, instructions, isA2A, a2aUrl, a2aBearerToken } = body
 
-    // For A2A agents: require URL, fetch agent card
-    if (isA2A) {
-      if (!a2aUrl) {
-        return NextResponse.json({ error: 'A2A URL is required for remote agents' }, { status: 400 })
-      }
+    // Name and instructions are always required
+    if (!name || !instructions) {
+      return NextResponse.json(
+        { error: 'Name and instructions are required' },
+        { status: 400 },
+      )
+    }
 
-      if (!name) {
-        return NextResponse.json({ error: 'Name is required' }, { status: 400 })
-      }
-
+    // Optionally fetch A2A agent card if connecting a remote tool
+    let a2aFields = {}
+    if (isA2A && a2aUrl) {
       let agentCard
       try {
         agentCard = await fetchAgentCard(a2aUrl, a2aBearerToken || undefined)
@@ -58,33 +59,21 @@ export async function POST(req: Request) {
         )
       }
 
-      const agent = await prisma.agent.create({
-        data: {
-          userId: session.user.id,
-          name,
-          description: description || agentCard.description || '',
-          instructions: instructions || '', // A2A agents may have empty instructions
-          isA2A: true,
-          a2aUrl,
-          a2aAgentCard: JSON.parse(JSON.stringify(agentCard)),
-          a2aBearerToken: a2aBearerToken || null,
-        },
-      })
-
-      return NextResponse.json(agent)
-    }
-
-    // Local agent: require name + instructions
-    if (!name || !instructions) {
-      return new NextResponse('Missing required fields', { status: 400 })
+      a2aFields = {
+        isA2A: true,
+        a2aUrl,
+        a2aAgentCard: JSON.parse(JSON.stringify(agentCard)),
+        a2aBearerToken: a2aBearerToken || null,
+      }
     }
 
     const agent = await prisma.agent.create({
       data: {
         userId: session.user.id,
         name,
-        description,
+        description: description || '',
         instructions,
+        ...a2aFields,
       },
     })
 

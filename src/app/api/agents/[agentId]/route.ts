@@ -33,15 +33,15 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ agentI
     if (description !== undefined) updateData.description = description
     if (instructions !== undefined) updateData.instructions = instructions
 
-    // Handle A2A fields
-    if (isA2A !== undefined) updateData.isA2A = isA2A
-    if (a2aBearerToken !== undefined) updateData.a2aBearerToken = a2aBearerToken || null
-    if (a2aUrl !== undefined) {
+    // Handle A2A remote tool fields
+    if (isA2A && a2aUrl) {
+      // Connecting or updating an A2A remote tool
+      updateData.isA2A = true
       updateData.a2aUrl = a2aUrl
+      updateData.a2aBearerToken = a2aBearerToken || null
 
       // Re-fetch agent card if URL changed
-      if (a2aUrl && a2aUrl !== agent.a2aUrl) {
-        // Use the new token if provided, otherwise fall back to existing
+      if (a2aUrl !== agent.a2aUrl) {
         const token = a2aBearerToken !== undefined ? a2aBearerToken : agent.a2aBearerToken
         try {
           const agentCard = await fetchAgentCard(a2aUrl, token || undefined)
@@ -53,10 +53,9 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ agentI
           )
         }
       }
-    }
-
-    // If switching from A2A to local, clear A2A fields
-    if (isA2A === false) {
+    } else if (isA2A === false) {
+      // Disconnecting the A2A remote tool
+      updateData.isA2A = false
       updateData.a2aUrl = null
       updateData.a2aAgentCard = null
       updateData.a2aBearerToken = null

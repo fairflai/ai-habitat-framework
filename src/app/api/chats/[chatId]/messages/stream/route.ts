@@ -1,10 +1,11 @@
 import { auth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { streamText } from 'ai'
+import { streamText, tool, stepCountIs, type ToolSet } from 'ai'
+import { z } from 'zod'
 import { getChatModel } from '@/lib/ai'
 import {
-  streamMessage,
-  sendMessage,
+  sendMessage as a2aSendMessage,
+  streamMessage as a2aStreamMessage,
   extractTaskResponse,
   supportsStreaming,
   type A2AAgentCard,
@@ -42,77 +43,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
   }
 
   try {
-    // ── A2A Remote Agent ─────────────────────────────────────────────────
-    if (chat.agent?.isA2A && chat.agent.a2aUrl && chat.agent.a2aAgentCard) {
-      const agentCard = chat.agent.a2aAgentCard as unknown as A2AAgentCard
-      const userMessage = lastMessage.content
-      const bearerToken = chat.agent.a2aBearerToken || undefined
-
-      if (supportsStreaming(agentCard)) {
-        // Stream response from remote A2A agent
-        const a2aStream = streamMessage(agentCard, userMessage, {
-          contextId: chatId, // Use chatId as context for conversation continuity
-          bearerToken,
-        })
-
-        // We need to capture the full text for saving to DB.
-        // Tee the stream: one for the response, one for capturing.
-        const [responseStream, captureStream] = a2aStream.tee()
-
-        // Capture full text in background
-        captureA2AStreamText(captureStream).then(async (fullText) => {
-          if (fullText) {
-            await prisma.message.create({
-              data: {
-                chatId,
-                role: 'ASSISTANT',
-                content: fullText,
-              },
-            })
-          }
-        })
-
-        return new Response(responseStream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-            'Transfer-Encoding': 'chunked',
-          },
-        })
-      } else {
-        // Non-streaming: use message/send
-        const task = await sendMessage(agentCard, userMessage, {
-          contextId: chatId,
-          bearerToken,
-        })
-
-        const responseText = extractTaskResponse(task)
-
-        await prisma.message.create({
-          data: {
-            chatId,
-            role: 'ASSISTANT',
-            content: responseText,
-          },
-        })
-
-        // Return as a streaming response for consistent client handling
-        const encoder = new TextEncoder()
-        const stream = new ReadableStream({
-          start(controller) {
-            controller.enqueue(encoder.encode(responseText))
-            controller.close()
-          },
-        })
-
-        return new Response(stream, {
-          headers: {
-            'Content-Type': 'text/plain; charset=utf-8',
-          },
-        })
-      }
-    }
-
-    // ── Local Agent (OpenAI via AI SDK) ──────────────────────────────────
     const aiConfig = await getChatModel()
 
     // Map messages to CoreMessage format
@@ -140,11 +70,52 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
       })
     }
 
+    // ── Build tools ────────────────────────────────────────────────────────
+    // If the chat is linked to an A2A remote agent, expose it as a tool
+    // that the LLM can invoke. The LLM orchestrates the conversation and
+    // decides when to delegate to the remote agent.
+    const tools: ToolSet = {}
+
+    if (chat.agent?.isA2A && chat.agent.a2aUrl && chat.agent.a2aAgentCard) {
+      const agentCard = chat.agent.a2aAgentCard as unknown as A2AAgentCard
+      const bearerToken = chat.agent.a2aBearerToken || undefined
+      const agentName = chat.agent.name
+      const agentDescription =
+        chat.agent.description || agentCard.description || 'Remote A2A agent'
+
+      tools.queryA2AAgent = tool({
+        description: `Query the remote agent "${agentName}": ${agentDescription}. Use this tool to delegate tasks or questions to this specialized agent.`,
+        inputSchema: z.object({
+          query: z.string().describe('The message or question to send to the remote agent'),
+        }),
+        execute: async ({ query }: { query: string }) => {
+          return await callA2AAgent(agentCard, query, chatId, bearerToken)
+        },
+      })
+
+      // If no explicit instructions were set for this agent, inject a default
+      // system message so the LLM knows it should use the tool.
+      if (!chat.agent.instructions) {
+        const insertIdx = aiConfig.systemPrompt ? 1 : 0
+        coreMessages.splice(insertIdx, 0, {
+          role: 'system',
+          content:
+            `You have access to a specialized remote agent called "${agentName}". ` +
+            `${agentDescription}. ` +
+            `Use the queryA2AAgent tool to delegate the user's requests to this agent. ` +
+            `Always relay the agent's response to the user in a clear and helpful way.`,
+        })
+      }
+    }
+
+    const hasTools = Object.keys(tools).length > 0
+
     const result = streamText({
       model: aiConfig.model,
       messages: coreMessages,
       maxOutputTokens: aiConfig.maxOutputTokens,
       temperature: aiConfig.temperature,
+      ...(hasTools ? { tools, stopWhen: stepCountIs(3) } : {}),
       onFinish: async (completion) => {
         await prisma.message.create({
           data: {
@@ -166,10 +137,37 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
   }
 }
 
+// ── A2A Tool Helpers ───────────────────────────────────────────────────────
+
 /**
- * Read all chunks from a captured A2A stream and return the full text.
+ * Call an A2A remote agent and return the full text response.
+ * Handles both streaming and non-streaming agents transparently.
  */
-async function captureA2AStreamText(stream: ReadableStream<Uint8Array>): Promise<string> {
+async function callA2AAgent(
+  agentCard: A2AAgentCard,
+  query: string,
+  contextId: string,
+  bearerToken?: string,
+): Promise<string> {
+  if (supportsStreaming(agentCard)) {
+    const stream = a2aStreamMessage(agentCard, query, {
+      contextId,
+      bearerToken,
+    })
+    return await collectStreamText(stream)
+  } else {
+    const task = await a2aSendMessage(agentCard, query, {
+      contextId,
+      bearerToken,
+    })
+    return extractTaskResponse(task)
+  }
+}
+
+/**
+ * Read all chunks from an A2A stream and return the full text.
+ */
+async function collectStreamText(stream: ReadableStream<Uint8Array>): Promise<string> {
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let fullText = ''
@@ -181,7 +179,7 @@ async function captureA2AStreamText(stream: ReadableStream<Uint8Array>): Promise
       fullText += decoder.decode(value, { stream: true })
     }
   } catch (error) {
-    console.error('[stream] Error capturing A2A response:', error)
+    console.error('[stream] Error collecting A2A response:', error)
   }
 
   return fullText

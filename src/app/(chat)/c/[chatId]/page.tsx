@@ -36,7 +36,7 @@ export default async function ChatPage({ params }: { params: Promise<{ chatId: s
   return (
     <div className="flex flex-col h-full w-full">
       <ChatHeader chatId={chatId} title={chat.title} />
-      <ChatInterface chatId={chatId} initialMessages={initialMessages} />
+      <ChatInterface key={chatId} chatId={chatId} initialMessages={initialMessages} />
     </div>
   )
 }

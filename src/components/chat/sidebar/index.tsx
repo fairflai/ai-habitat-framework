@@ -101,10 +101,9 @@ export function ChatSidebar() {
                     <ContextMenuTrigger asChild>
                       <CollapsibleTrigger asChild>
                         <SidebarGroupLabel className="cursor-pointer hover:bg-accent/50 rounded-md transition-colors group/folder px-2 h-9">
-                          {agent.isA2A ? (
-                            <Globe className="mr-2 h-4 w-4 text-blue-500" />
-                          ) : (
-                            <Sparkles className="mr-2 h-4 w-4 text-muted-foreground" />
+                          <Sparkles className="mr-2 h-4 w-4 text-muted-foreground" />
+                          {agent.isA2A && (
+                            <Globe className="-ml-1 mr-1 h-3 w-3 text-blue-500" />
                           )}
                           <span className="flex-1 truncate">{agent.name}</span>
                           <span className="text-xs text-muted-foreground mr-2">{agentChats.length}</span>
