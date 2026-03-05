@@ -2,21 +2,24 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
 import { withAdminApi } from '@/lib/admin'
 
-// GET /api/admin/audit
+// GET /api/admin/agents - List all agents
 export const GET = withAdminApi(async (_session, request) => {
   const { searchParams } = new URL(request.url)
   const page = parseInt(searchParams.get('page') || '1')
   const limit = parseInt(searchParams.get('limit') || '50')
-  const action = searchParams.get('action')
-  const userId = searchParams.get('userId')
+  const search = searchParams.get('search') || ''
 
-  const where = {
-    ...(action && { action }),
-    ...(userId && { userId }),
-  }
+  const where = search
+    ? {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { description: { contains: search, mode: 'insensitive' as const } },
+        ],
+      }
+    : {}
 
-  const [logs, total] = await Promise.all([
-    prisma.auditLog.findMany({
+  const [agents, total] = await Promise.all([
+    prisma.agent.findMany({
       where,
       include: {
         user: {
@@ -26,11 +29,9 @@ export const GET = withAdminApi(async (_session, request) => {
             email: true,
           },
         },
-        adminUser: {
+        _count: {
           select: {
-            id: true,
-            name: true,
-            email: true,
+            chats: true,
           },
         },
       },
@@ -38,11 +39,11 @@ export const GET = withAdminApi(async (_session, request) => {
       skip: (page - 1) * limit,
       take: limit,
     }),
-    prisma.auditLog.count({ where }),
+    prisma.agent.count({ where }),
   ])
 
   return NextResponse.json({
-    logs,
+    agents,
     pagination: {
       page,
       limit,

@@ -14,7 +14,6 @@ Complete technical reference for AI Chat Habitat. This document covers architect
 - [API Reference](#api-reference)
 - [Frontend Architecture](#frontend-architecture)
 - [Admin Panel](#admin-panel)
-- [RBAC Permissions](#rbac-permissions)
 - [User Management Scripts](#user-management-scripts)
 - [Prisma & Database Cheatsheet](#prisma--database-cheatsheet)
 - [Customization Guide](#customization-guide)
@@ -49,11 +48,12 @@ AI Chat Habitat follows a layered architecture built on Next.js 16 App Router:
 
 ### Key Design Decisions
 
-- **JWT sessions** (`strategy: 'jwt'`) -- Role and permissions are embedded in the token and refreshed on `trigger === 'update'` or when `token.role` is missing. This avoids a DB lookup on every request while keeping RBAC data accessible in the middleware.
+- **JWT sessions** (`strategy: 'jwt'`) -- User identity is embedded in the JWT token. Admin authentication is completely separate (dedicated `AdminUser` table + `admin-token` cookie + `ADMIN_JWT_SECRET`).
 - **PrismaPg adapter** -- The project uses `@prisma/adapter-pg` with a raw `pg` connection string instead of Prisma's default driver. This provides better compatibility with edge/serverless environments.
 - **Singleton Prisma client** -- In development, the client is cached on `globalThis` to survive hot reloads without exhausting database connections (`src/lib/prisma.ts`).
 - **Dual state management** -- Zustand stores provide instant, optimistic UI updates for chats/messages/folders/agents. TanStack Query handles server synchronization, caching, and background refetching.
-- **Server Components for admin** -- Admin pages (`/admin/*`) are React Server Components that fetch data directly with Prisma, avoiding API round-trips. The chat interface uses Client Components for real-time interactivity.
+- **Separated admin auth** -- Admin users have their own `AdminUser` database table, their own JWT system (jose + `admin-token` cookie), and a completely independent login flow at `/admin/login`. No NextAuth involvement for admin auth.
+- **Client Components for admin** -- Admin pages (`/admin/*`) are Client Components that fetch data from `/api/admin/*` endpoints. The panel layout uses a route group `(panel)` so the login page has its own minimal layout.
 
 ---
 
@@ -209,7 +209,7 @@ ai-habitat-framework/
 
 ## Database Schema
 
-The database consists of 12 models organized in three groups.
+The database consists of 10 models organized in three groups.
 
 ### Entity-Relationship Overview
 
@@ -222,8 +222,7 @@ User ─┬── Chat ──── Message
       │
       ├── Account (OAuth)
       ├── Session
-      ├── Role ──── Permission (many-to-many)
-      └── AuditLog
+      └── AuditLog ──── AdminUser (separate admin table)
 
 SystemSetting (standalone key-value store)
 ```
@@ -232,7 +231,7 @@ SystemSetting (standalone key-value store)
 
 | Model    | Purpose                                              | Key Fields                                                  |
 | -------- | ---------------------------------------------------- | ----------------------------------------------------------- |
-| `User`   | Application users with auth credentials and RBAC     | `email` (unique), `password?`, `isActive`, `roleId?`        |
+| `User`   | Application users with auth credentials              | `email` (unique), `password?`, `isActive`                   |
 | `Chat`   | Conversations belonging to a user                    | `title`, `visibility` (PUBLIC/PRIVATE), `isArchived`, `agentId?`, `folderId?` |
 | `Message` | Individual messages within a chat                   | `role` (USER/ASSISTANT/SYSTEM), `content`, `webSearch`, `deepReasoning`, `attachments` (JSON) |
 | `Agent`  | Custom AI personas with system prompts               | `name`, `description?`, `instructions` (system prompt)      |
@@ -246,31 +245,30 @@ SystemSetting (standalone key-value store)
 | `Account` | OAuth provider connections   |
 | `Session` | Active user sessions         |
 
-### Admin/RBAC Models
+### Admin Models
 
 | Model           | Purpose                                        | Key Fields                                    |
 | --------------- | ---------------------------------------------- | --------------------------------------------- |
-| `Role`          | Named role with associated permissions         | `name` (unique: "admin", "moderator", etc.)   |
-| `Permission`    | Granular permission (many-to-many with Role)   | `name` (unique: "users.read", "chats.delete") |
-| `AuditLog`      | Immutable log of admin actions                 | `action`, `target`, `targetType`, `metadata` (JSON), indexed on `[action, userId, createdAt]` |
+| `AdminUser`     | Separate admin user table (independent auth)   | `email` (unique), `password`, `name?`, `isActive` |
+| `AuditLog`      | Immutable log of admin/system actions          | `action`, `target`, `targetType`, `metadata` (JSON), `userId?`, `adminUserId?`, indexed on `[action, userId, adminUserId, createdAt]` |
 | `SystemSetting` | Key-value configuration store                  | `key` (unique), `value` (JSON)                |
 
 ### Cascade Behavior
 
-| Parent   | Child    | On Delete    |
-| -------- | -------- | ------------ |
-| User     | Chat     | Cascade      |
-| User     | Account  | Cascade      |
-| User     | Session  | Cascade      |
-| User     | Folder   | Cascade      |
-| User     | Agent    | Cascade      |
-| User     | AuditLog | SetNull      |
-| Chat     | Message  | Cascade      |
-| Chat     | Vote     | Cascade      |
-| Message  | Vote     | Cascade      |
-| Folder   | Chat     | SetNull      |
-| Agent    | Chat     | SetNull      |
-| Role     | User     | SetNull      |
+| Parent    | Child    | On Delete    |
+| --------- | -------- | ------------ |
+| User      | Chat     | Cascade      |
+| User      | Account  | Cascade      |
+| User      | Session  | Cascade      |
+| User      | Folder   | Cascade      |
+| User      | Agent    | Cascade      |
+| User      | AuditLog | SetNull      |
+| AdminUser | AuditLog | SetNull      |
+| Chat      | Message  | Cascade      |
+| Chat      | Vote     | Cascade      |
+| Message   | Vote     | Cascade      |
+| Folder    | Chat     | SetNull      |
+| Agent     | Chat     | SetNull      |
 
 ---
 
@@ -286,44 +284,50 @@ Authentication is handled by NextAuth.js v5 with JWT strategy, configured in `sr
 
 **JWT Callbacks:**
 
-- On sign-in: user `id`, `role`, and `permissions` are written into the JWT token
+- On sign-in: user `id` is written into the JWT token
 - On session access: token data is exposed to `session.user`
-- On `trigger === 'update'` or missing role: permissions are refreshed from the database
 
 **Type Augmentation:**
 
-The `src/types/next-auth.ts` file extends NextAuth's default types to include `role` and `permissions` on both `Session.user` and `JWT`.
+The `src/types/next-auth.ts` file extends NextAuth's default types to include custom fields on `Session.user` and `JWT`.
 
 ### Middleware (Route Protection)
 
 `src/middleware.ts` runs on every request (except static files) and enforces:
 
-1. **Authentication** -- Unauthenticated users on protected routes are redirected to `/login?callbackUrl=...`
+1. **User authentication** -- Unauthenticated users on protected routes are redirected to `/login?callbackUrl=...`
 2. **Login redirect** -- Authenticated users on `/login` are redirected to `/`
-3. **Admin guard** -- Routes under `/admin` and `/api/admin` require `role === 'admin'`:
-   - Page requests return a redirect to `/?error=forbidden`
-   - API requests return `403 JSON` response
+3. **Admin guard** -- Routes under `/admin` and `/api/admin` use a **completely separate auth system**:
+   - The middleware checks for the `admin-token` cookie (JWT signed with `ADMIN_JWT_SECRET`)
+   - Admin page requests without a valid token redirect to `/admin/login`
+   - Admin API requests without a valid token return `401 JSON`
+   - `/admin/login` and `/api/admin/auth/*` are public (no admin token required)
 
-**Public routes** (no auth required): `/login`, `/logout`, `/api/auth/*`
+**Public routes** (no auth required): `/login`, `/logout`, `/api/auth/*`, `/admin/login`, `/api/admin/auth/*`
 
-### Admin Authorization
+### Admin Authentication (Separated)
 
-API-level admin authorization is handled by utilities in `src/lib/admin.ts`:
+Admin authentication is **completely independent** from user auth:
+
+- **Database**: `AdminUser` table (separate from `User`)
+- **Auth library**: `src/lib/admin-auth.ts` using `jose` for JWT (not NextAuth)
+- **Cookie**: `admin-token` (separate from NextAuth session cookie)
+- **Secret**: `ADMIN_JWT_SECRET` env var (separate from `AUTH_SECRET`)
+- **Login page**: `/admin/login` (separate from `/login`)
+- **Token expiry**: 8 hours
 
 ```typescript
-// Simple: require admin role
-const session = await requireAdmin()
+// In API routes, use withAdminApi for automatic auth + error handling
+import { withAdminApi, logAudit } from '@/lib/admin'
 
-// Granular: require specific permission
-const session = await requirePermission('users.write')
+export const GET = withAdminApi(async (session, request) => {
+  // session is an AdminSession { adminId, email, name }
+  return NextResponse.json({ data: 'example' })
+})
 
-// Check without throwing
-const canWrite = hasPermission(session, 'users.write')
-
-// Wrapper for API route handlers (auto auth + error handling)
-export const GET = withAdmin(async (session, request) => {
-  // handler body
-}, { permission: 'users.read' })
+// Or manually verify admin auth
+import { requireAdmin } from '@/lib/admin-auth'
+const session = await requireAdmin() // throws if not authenticated
 ```
 
 ---
@@ -385,19 +389,28 @@ The stream endpoint:
 
 ### Admin Endpoints
 
-All admin endpoints require `role === 'admin'` plus the specific permission listed.
+All admin endpoints require a valid `admin-token` cookie (verified via `withAdminApi` wrapper).
 
-| Method | Endpoint                      | Description                          | Permission       |
-| ------ | ----------------------------- | ------------------------------------ | ---------------- |
-| GET    | `/api/admin/stats`            | Dashboard statistics (users, chats, messages, agents, trends) | `admin.access` |
-| GET    | `/api/admin/users`            | Paginated user list with search      | `users.read`     |
-| POST   | `/api/admin/users`            | Create user (with role assignment)   | `users.write`    |
-| GET    | `/api/admin/users/[userId]`   | User detail with role & permissions  | `users.read`     |
-| PATCH  | `/api/admin/users/[userId]`   | Update user (name, email, role, status) | `users.write` |
-| DELETE | `/api/admin/users/[userId]`   | Delete user (self-deletion blocked)  | `users.delete`   |
-| GET    | `/api/admin/audit`            | Paginated audit logs with filters    | `audit.read`     |
-| GET    | `/api/admin/settings`         | Read all system settings             | `settings.read`  |
-| PATCH  | `/api/admin/settings`         | Upsert system settings               | `settings.write` |
+| Method | Endpoint                      | Description                          |
+| ------ | ----------------------------- | ------------------------------------ |
+| POST   | `/api/admin/auth/login`       | Admin login (sets `admin-token` cookie) |
+| POST   | `/api/admin/auth/logout`      | Admin logout (clears cookie)         |
+| GET    | `/api/admin/stats`            | Dashboard statistics (users, chats, messages, agents, trends) |
+| GET    | `/api/admin/users`            | Paginated user list with search      |
+| POST   | `/api/admin/users`            | Create user                          |
+| GET    | `/api/admin/users/[userId]`   | User detail with counts              |
+| PATCH  | `/api/admin/users/[userId]`   | Update user (name, email, status)    |
+| DELETE | `/api/admin/users/[userId]`   | Delete user                          |
+| GET    | `/api/admin/agents`           | Paginated agent list with search     |
+| GET    | `/api/admin/agents/[agentId]` | Agent detail                         |
+| DELETE | `/api/admin/agents/[agentId]` | Delete agent                         |
+| GET    | `/api/admin/chats`            | Paginated chat list with search      |
+| GET    | `/api/admin/chats/[chatId]`   | Chat detail with messages            |
+| PATCH  | `/api/admin/chats/[chatId]`   | Archive/restore chat                 |
+| DELETE | `/api/admin/chats/[chatId]`   | Delete chat                          |
+| GET    | `/api/admin/audit`            | Paginated audit logs with filters    |
+| GET    | `/api/admin/settings`         | Read all system settings             |
+| PATCH  | `/api/admin/settings`         | Upsert system settings               |
 
 **GET `/api/admin/users`** query parameters:
 - `page` (default: 1)
@@ -483,64 +496,52 @@ This pattern provides fast initial page loads with SSR while the client takes ov
 
 ## Admin Panel
 
-Accessible at `/admin`, protected by middleware (requires `admin` role).
+Accessible at `/admin/login` for authentication, then `/admin` for the panel. Protected by middleware (requires valid `admin-token` cookie). Admin auth is completely separated from user auth.
 
 ### Pages
 
-| Page         | Route              | Rendering   | Description                                        |
-| ------------ | ------------------ | ----------- | -------------------------------------------------- |
-| Dashboard    | `/admin`           | RSC (async) | Stats cards: total users, chats, messages, agents + 7-day trends |
-| Users        | `/admin/users`     | RSC (async) | User table with role badges, activity status, counts |
-| Agents       | `/admin/agents`    | RSC (async) | Agent table with owner info and chat usage         |
-| Chats        | `/admin/chats`     | RSC (async) | Chat table with user, agent, message count, archive status |
-| Audit Log    | `/admin/audit`     | RSC (async) | Timestamped action log with user and target info   |
-| Settings     | `/admin/settings`  | RSC (async) | AI config, rate limits, feature flags              |
+| Page         | Route              | Rendering     | Description                                        |
+| ------------ | ------------------ | ------------- | -------------------------------------------------- |
+| Login        | `/admin/login`     | Client        | Separate admin login form (email/password)         |
+| Dashboard    | `/admin`           | Client        | Stats cards: total users, chats, messages, agents + 7-day trends, recent users, recent activity |
+| Users        | `/admin/users`     | Client        | User table with search, pagination, create/edit/toggle/delete |
+| Agents       | `/admin/agents`    | Client        | Agent table with search, view instructions, delete |
+| Chats        | `/admin/chats`     | Client        | Chat table with search, view messages, archive/restore, delete |
+| Audit Log    | `/admin/audit`     | Client        | Timestamped action log with action filter, pagination |
+| Settings     | `/admin/settings`  | Client        | AI config (model, title model, system prompt, max tokens, temperature), rate limits, feature flags |
 
-All admin pages use React `Suspense` with skeleton fallbacks for streaming SSR.
+All admin pages are Client Components that fetch data from `/api/admin/*` endpoints. The Settings page is the **control center** for AI configuration -- changes to model, temperature, max tokens, and system prompt take effect immediately for new conversations via `src/lib/ai.ts`.
 
 ### Admin Components
 
-- **`AdminSidebar`** -- Fixed left sidebar with nav items (Dashboard, Users, Agents, Chat, Audit, Settings) + "Back to Chat" link
+- **`AdminSidebar`** -- Fixed left sidebar with nav items (Dashboard, Users, Agents, Chats, Audit, Settings) + admin info + logout button
 - **`AdminHeader`** -- Top bar with dynamic breadcrumbs based on URL path + theme toggle
 - **`StatsCard`** -- Reusable card showing a metric with optional icon, description, and trend percentage
 
----
+### AI Configuration (`src/lib/ai.ts`)
 
-## RBAC Permissions
+The centralized AI configuration module reads settings from the `SystemSetting` database table:
 
-### Available Permissions
+```typescript
+import { getChatModel, getTitleModel, getAIConfig } from '@/lib/ai'
 
-| Permission        | Description                      |
-| ----------------- | -------------------------------- |
-| `users.read`      | View user list and details       |
-| `users.write`     | Create and modify users          |
-| `users.delete`    | Delete users                     |
-| `users.roles`     | Manage user roles                |
-| `chats.read`      | View all chats                   |
-| `chats.write`     | Modify any chat                  |
-| `chats.delete`    | Delete any chat                  |
-| `agents.read`     | View all agents                  |
-| `agents.write`    | Modify any agent                 |
-| `agents.delete`   | Delete any agent                 |
-| `audit.read`      | View audit logs                  |
-| `settings.read`   | View system settings             |
-| `settings.write`  | Modify system settings           |
-| `admin.access`    | Access the admin panel           |
+// Get the configured chat model with all parameters
+const { model, maxOutputTokens, temperature, systemPrompt } = await getChatModel()
 
-### How Permissions Work
+// Get the configured title generation model
+const titleModel = await getTitleModel()
 
-1. Permissions are stored in the `Permission` table
-2. Roles have a many-to-many relationship with permissions
-3. Users are assigned a single role via `roleId`
-4. On login, the user's permissions are loaded and embedded in the JWT token
-5. The `withAdmin` wrapper and `requirePermission` function check permissions on each admin API call
-6. Audit actions are logged via `logAudit()` for traceability
+// Get raw config values
+const config = await getAIConfig()
+// config.model, config.titleModel, config.systemPrompt, config.maxTokens, config.temperature
+```
 
-### Adding a New Permission
-
-1. Add the permission to the `ADMIN_PERMISSIONS` array in `scripts/create-admin.ts`
-2. Re-run the script to sync permissions: `npx tsx scripts/create-admin.ts admin@existing.com`
-3. Use `requirePermission('your.permission')` in the relevant API route
+Defaults (used when no settings are configured):
+- Chat model: `gpt-4o`
+- Title model: `gpt-4o-mini`
+- Max output tokens: `4096`
+- Temperature: `0.7`
+- System prompt: (empty)
 
 ---
 
@@ -558,28 +559,19 @@ npx tsx scripts/create-user.ts mario@example.com "Mario Rossi" mypassword123
 ### Create an Admin User
 
 ```bash
-# Create a new user as admin
+# Admin users are stored in a separate AdminUser table
 npx tsx scripts/create-admin.ts <email> <name> <password>
 
 # Example:
 npx tsx scripts/create-admin.ts admin@example.com "Super Admin" adminpass123
 ```
 
-### Promote an Existing User to Admin
+The `create-admin.ts` script:
+1. Creates an `AdminUser` record (separate from regular `User` table)
+2. Logs the action in the audit log
+3. The admin can then log in at `/admin/login`
 
-```bash
-# Pass only the email to promote an existing user
-npx tsx scripts/create-admin.ts <email>
-
-# Example:
-npx tsx scripts/create-admin.ts mario@example.com
-```
-
-The `create-admin.ts` script performs these steps:
-1. Creates all permissions defined in `ADMIN_PERMISSIONS` (idempotent upserts)
-2. Creates or updates the `admin` role with all permissions
-3. Creates the user or promotes an existing one
-4. Logs the action in the audit log
+> **Note:** Admin users and regular users are completely separate. An admin user cannot log into the regular chat interface, and a regular user cannot access the admin panel.
 
 ---
 
@@ -622,10 +614,8 @@ npx prisma format
 -- User count
 SELECT COUNT(*) FROM "User";
 
--- Users with roles
-SELECT u.email, u.name, r.name as role
-FROM "User" u
-LEFT JOIN "Role" r ON u."roleId" = r.id;
+-- Admin users
+SELECT id, email, name, "isActive" FROM "AdminUser";
 
 -- Chats per user
 SELECT u.email, COUNT(c.id) as chat_count
@@ -664,19 +654,24 @@ psql -h localhost -U user -d ai-habitat-chat < backup.sql
 
 ### Changing the AI Model
 
-The AI model is configured in `src/app/api/chats/[chatId]/messages/stream/route.ts`:
+The AI model is now configured dynamically via the admin Settings page (`/admin/settings`), which writes to the `SystemSetting` database table. The configuration is read by `src/lib/ai.ts`.
+
+To change the default model without the admin panel, update the `DEFAULT_CONFIG` in `src/lib/ai.ts`:
 
 ```typescript
-const result = streamText({
-  model: openai('gpt-5-mini'),  // Change this
-  messages: coreMessages,
-})
+const DEFAULT_CONFIG: AIConfig = {
+  model: 'gpt-4o',        // Change this
+  titleModel: 'gpt-4o-mini',
+  systemPrompt: '',
+  maxTokens: 4096,
+  temperature: 0.7,
+}
 ```
 
 To use a different provider (e.g., Anthropic):
 1. Install the provider: `bun add @ai-sdk/anthropic`
-2. Import and use it: `import { anthropic } from '@ai-sdk/anthropic'`
-3. Replace the model: `model: anthropic('claude-sonnet-4-20250514')`
+2. Update `src/lib/ai.ts` to import and use the new provider
+3. The rest of the codebase uses `getChatModel()` and `getTitleModel()` which abstract the provider
 
 ### Adding a New shadcn/ui Component
 
@@ -714,15 +709,15 @@ export async function GET() {
 
 ### Adding a New Admin API Route
 
-Use the `withAdmin` wrapper for automatic auth + permission checking + error handling:
+Use the `withAdminApi` wrapper for automatic auth + error handling:
 
 ```typescript
-import { withAdmin, logAudit } from '@/lib/admin'
+import { withAdminApi, logAudit } from '@/lib/admin'
 
-export const GET = withAdmin(async (session, request) => {
-  // session.user is guaranteed to be an admin with the required permission
+export const GET = withAdminApi(async (session, request) => {
+  // session is an AdminSession { adminId, email, name }
   return NextResponse.json({ data: 'example' })
-}, { permission: 'your.permission' })
+})
 ```
 
 ---
@@ -738,10 +733,14 @@ cp .env.example .env
 | Variable              | Required | Description                                  | Default |
 | --------------------- | -------- | -------------------------------------------- | ------- |
 | `DATABASE_URL`        | Yes      | PostgreSQL connection string                 | --      |
-| `AUTH_SECRET`         | Yes      | Secret for JWT signing (min 32 chars)        | --      |
+| `AUTH_SECRET`         | Yes      | Secret for user JWT signing (min 32 chars)   | --      |
+| `ADMIN_JWT_SECRET`    | Yes      | Secret for admin JWT signing (min 32 chars)  | --      |
 | `OPENAI_API_KEY`      | Yes      | OpenAI API key                               | --      |
 | `GOOGLE_CLIENT_ID`    | No       | Google OAuth client ID                       | --      |
 | `GOOGLE_CLIENT_SECRET`| No       | Google OAuth client secret                   | --      |
+| `SEED_ADMIN_EMAIL`    | No       | Admin email for `prisma db seed`             | --      |
+| `SEED_ADMIN_NAME`     | No       | Admin name for `prisma db seed`              | --      |
+| `SEED_ADMIN_PASSWORD` | No       | Admin password for `prisma db seed`          | --      |
 | `ENABLE_AUTO_TITLE`   | No       | Enable AI-powered chat title generation      | `true`  |
 
 ---
@@ -766,12 +765,13 @@ The Prisma client hasn't been generated:
 npx prisma generate
 ```
 
-### "Cannot access /admin" (403 Forbidden)
+### "Cannot access /admin" (redirected to /admin/login)
 
-The user doesn't have the admin role. Promote them:
+You need to create an admin user first:
 ```bash
-npx tsx scripts/create-admin.ts email@user.com
+npx tsx scripts/create-admin.ts admin@example.com "Admin" password123
 ```
+Then log in at `/admin/login` with those credentials.
 
 ### Migration Conflicts
 

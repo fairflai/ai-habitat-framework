@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/prisma'
-import { withAdmin, logAudit } from '@/lib/admin'
+import { withAdminApi } from '@/lib/admin'
 
 // GET /api/admin/stats - Dashboard statistics
-export const GET = withAdmin(async (session) => {
+export const GET = withAdminApi(async () => {
   const now = new Date()
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)

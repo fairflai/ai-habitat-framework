@@ -17,8 +17,8 @@ Whether you're building an internal tool, a customer support bot, or a specializ
 - **Real-time AI Chat** -- Streaming responses with OpenAI integration via Vercel AI SDK
 - **Custom Agents** -- Create specialized AI personas with custom system prompts and behaviors
 - **Multi-user Ready** -- Full authentication system with email/password and Google OAuth
-- **Admin Dashboard** -- Complete admin panel with user management, analytics, and audit logs
-- **Role-Based Access Control** -- Granular RBAC permissions system for enterprise use cases
+- **Admin Dashboard** -- Complete admin panel with user management, analytics, audit logs, and AI configuration
+- **Separated Admin Auth** -- Admin users have their own database table, JWT tokens, and login flow (completely independent from user auth)
 - **Folder Organization** -- Organize conversations with a flexible folder structure
 - **Auto-generated Titles** -- AI-powered chat title generation from conversation context
 - **Message Voting** -- Collect feedback on AI responses (upvote/downvote)
@@ -66,6 +66,7 @@ See [`.env.example`](./.env.example) for all available variables with descriptio
 
 - `DATABASE_URL` -- PostgreSQL connection string
 - `AUTH_SECRET` -- JWT signing secret (generate with `openssl rand -base64 32`)
+- `ADMIN_JWT_SECRET` -- Separate JWT secret for admin auth (generate with `openssl rand -base64 32`)
 - `OPENAI_API_KEY` -- OpenAI API key
 
 ### Setup

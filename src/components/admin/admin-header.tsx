@@ -7,11 +7,11 @@ import { ThemeToggle } from '@/components/ui/theme-toggle'
 
 const pathNames: Record<string, string> = {
   admin: 'Dashboard',
-  users: 'Utenti',
-  agents: 'Agenti',
-  chats: 'Chat',
+  users: 'Users',
+  agents: 'Agents',
+  chats: 'Chats',
   audit: 'Audit Log',
-  settings: 'Impostazioni',
+  settings: 'Settings',
 }
 
 export function AdminHeader() {

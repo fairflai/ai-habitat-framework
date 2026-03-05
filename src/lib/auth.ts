@@ -33,17 +33,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           const { email, password } = parsedCredentials.data
           const user = await prisma.user.findUnique({
             where: { email },
-            include: {
-              role: {
-                include: {
-                  permissions: true,
-                },
-              },
-            },
           })
 
           if (!user) return null
           if (!user.password) return null
+          if (!user.isActive) return null
 
           const passwordsMatch = await bcrypt.compare(password, user.password)
 
@@ -52,8 +46,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
               id: user.id,
               email: user.email,
               name: user.name,
-              role: user.role?.name ?? null,
-              permissions: user.role?.permissions.map((p) => p.name) ?? [],
             }
           }
         }
@@ -62,40 +54,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
-    async jwt({ token, user, trigger }) {
-      // Initial sign-in: transfer user data to token
+    async jwt({ token, user }) {
       if (user) {
         token.id = user.id
-        token.role = (user as { role?: string | null }).role ?? null
-        token.permissions = (user as { permissions?: string[] }).permissions ?? []
       }
-
-      // Refresh role/permissions on session update or periodically
-      if (trigger === 'update' || !token.role) {
-        const dbUser = await prisma.user.findUnique({
-          where: { id: (token.id as string) ?? token.sub },
-          include: {
-            role: {
-              include: {
-                permissions: true,
-              },
-            },
-          },
-        })
-
-        if (dbUser) {
-          token.role = dbUser.role?.name ?? null
-          token.permissions = dbUser.role?.permissions.map((p) => p.name) ?? []
-        }
-      }
-
       return token
     },
     async session({ token, session }) {
       if (session.user) {
         session.user.id = (token.id as string) ?? token.sub ?? ''
-        session.user.role = token.role as string | null | undefined
-        session.user.permissions = token.permissions as string[] | undefined
       }
       return session
     },

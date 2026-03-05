@@ -1,7 +1,7 @@
 import { auth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
-import { openai } from '@ai-sdk/openai'
 import { streamText } from 'ai'
+import { getChatModel } from '@/lib/ai'
 
 export async function POST(req: Request, { params }: { params: Promise<{ chatId: string }> }) {
   const session = await auth()
@@ -24,7 +24,6 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
 
   // Save the latest user message
   const lastMessage = messages[messages.length - 1]
-  // Normalize role check (handle both 'user' and 'USER')
   if (lastMessage.role.toLowerCase() === 'user') {
     await prisma.message.create({
       data: {
@@ -36,7 +35,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
   }
 
   try {
-    // Map messages to CoreMessage format and ensure lowercase roles for AI SDK
+    // Load AI config from database
+    const aiConfig = await getChatModel()
+
+    // Map messages to CoreMessage format
     const coreMessages: { role: 'user' | 'assistant' | 'system'; content: string }[] = messages.map(
       (m: { role: string; content: string }) => ({
         role: m.role.toLowerCase() as 'user' | 'assistant',
@@ -44,19 +46,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
       }),
     )
 
-    // Prepend system message if agent exists
-    if (chat.agent?.instructions) {
+    // Prepend global system prompt if configured
+    if (aiConfig.systemPrompt) {
       coreMessages.unshift({
+        role: 'system',
+        content: aiConfig.systemPrompt,
+      })
+    }
+
+    // Prepend agent-specific instructions (after global system prompt)
+    if (chat.agent?.instructions) {
+      const insertIdx = aiConfig.systemPrompt ? 1 : 0
+      coreMessages.splice(insertIdx, 0, {
         role: 'system',
         content: chat.agent.instructions,
       })
     }
 
     const result = streamText({
-      model: openai('gpt-5-mini'),
+      model: aiConfig.model,
       messages: coreMessages,
+      maxOutputTokens: aiConfig.maxOutputTokens,
+      temperature: aiConfig.temperature,
       onFinish: async (completion) => {
-        // Save assistant message
         await prisma.message.create({
           data: {
             chatId,

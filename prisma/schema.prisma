@@ -15,10 +15,6 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  // RBAC
-  roleId String?
-  role   Role?   @relation(fields: [roleId], references: [id], onDelete: SetNull)
-
   chats     Chat[]
   messages  Message[]
   votes     Vote[]
@@ -154,25 +150,19 @@ enum MessageRole {
 }
 
 // ============================================
-// RBAC - Role Based Access Control
+// Admin - Separated Admin Users
 // ============================================
 
-model Role {
-  id          String       @id @default(cuid())
-  name        String       @unique // "admin", "moderator", "user"
-  description String?
-  permissions Permission[]
-  users       User[]
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-}
+model AdminUser {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-model Permission {
-  id          String   @id @default(cuid())
-  name        String   @unique // "users.read", "users.write", "chats.delete", etc.
-  description String?
-  roles       Role[]
-  createdAt   DateTime @default(now())
+  auditLogs AuditLog[]
 }
 
 // ============================================
@@ -182,9 +172,9 @@ model Permission {
 model AuditLog {
   id         String   @id @default(cuid())
   action     String // "user.created", "chat.deleted", etc.
-  target     String? // ID dell'entità modificata
+  target     String? // ID of the modified entity
   targetType String? // "user", "chat", "agent", etc.
-  metadata   Json? // Dettagli aggiuntivi
+  metadata   Json? // Additional details
   ipAddress  String?
   userAgent  String?
   createdAt  DateTime @default(now())
@@ -192,8 +182,12 @@ model AuditLog {
   userId String?
   user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  adminUserId String?
+  adminUser   AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
   @@index([action])
   @@index([userId])
+  @@index([adminUserId])
   @@index([createdAt])
 }
 

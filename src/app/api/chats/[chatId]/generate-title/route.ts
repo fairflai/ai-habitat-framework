@@ -1,16 +1,10 @@
 import { auth } from '@/lib/auth'
 import prisma from '@/lib/prisma'
 import { NextResponse } from 'next/server'
-import { openai } from '@ai-sdk/openai'
 import { generateText } from 'ai'
-
-const ENABLE_AUTO_TITLE = process.env.ENABLE_AUTO_TITLE !== 'false'
+import { getTitleModel } from '@/lib/ai'
 
 export async function POST(req: Request, { params }: { params: Promise<{ chatId: string }> }) {
-  if (!ENABLE_AUTO_TITLE) {
-    return new NextResponse('Auto-title generation is disabled', { status: 403 })
-  }
-
   const session = await auth()
   if (!session?.user?.id) {
     return new NextResponse('Unauthorized', { status: 401 })
@@ -24,7 +18,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
     include: {
       messages: {
         orderBy: { createdAt: 'asc' },
-        take: 5, // Use first few messages for context
+        take: 5,
       },
     },
   })
@@ -37,12 +31,29 @@ export async function POST(req: Request, { params }: { params: Promise<{ chatId:
     return new NextResponse('No messages to generate title from', { status: 400 })
   }
 
-  // Create conversation context for title generation
+  // Check if auto-title is enabled (via SystemSetting or env fallback)
+  try {
+    const autoTitleSetting = await prisma.systemSetting.findUnique({
+      where: { key: 'enable_auto_title' },
+    })
+    const isEnabled = autoTitleSetting
+      ? autoTitleSetting.value === true
+      : process.env.ENABLE_AUTO_TITLE !== 'false'
+
+    if (!isEnabled) {
+      return new NextResponse('Auto-title generation is disabled', { status: 403 })
+    }
+  } catch {
+    // If check fails, allow generation (fail open)
+  }
+
   const conversationContext = chat.messages.map((m) => `${m.role}: ${m.content.slice(0, 200)}`).join('\n')
 
   try {
+    const titleModel = await getTitleModel()
+
     const { text: generatedTitle } = await generateText({
-      model: openai('gpt-4o-mini'),
+      model: titleModel,
       prompt: `Generate a short, descriptive title (max 6 words) for this conversation. Return ONLY the title, no quotes or extra text.\n\nConversation:\n${conversationContext}`,
     })
 
