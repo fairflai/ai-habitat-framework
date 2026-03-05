@@ -14,6 +14,8 @@ Complete technical reference for AI Chat Habitat. This document covers architect
 - [API Reference](#api-reference)
 - [Frontend Architecture](#frontend-architecture)
 - [Admin Panel](#admin-panel)
+- [A2A (Agent2Agent) Remote Agents](#a2a-agent2agent-remote-agents)
+- [AI Configuration](#ai-configuration-srclibaitts)
 - [User Management Scripts](#user-management-scripts)
 - [Prisma & Database Cheatsheet](#prisma--database-cheatsheet)
 - [Customization Guide](#customization-guide)
@@ -146,6 +148,7 @@ ai-habitat-framework/
 │   │       ├── folders/[folderId]/route.ts    # PATCH (rename), DELETE
 │   │       ├── agents/route.ts                # GET (list), POST (create)
 │   │       ├── agents/[agentId]/route.ts      # PATCH (update), DELETE
+│   │       ├── agents/fetch-card/route.ts     # POST (A2A Agent Card discovery)
 │   │       ├── admin/stats/route.ts           # GET (dashboard statistics)
 │   │       ├── admin/users/route.ts           # GET (list), POST (create)
 │   │       ├── admin/users/[userId]/route.ts  # GET, PATCH, DELETE
@@ -188,6 +191,8 @@ ai-habitat-framework/
 │   ├── lib/
 │   │   ├── auth.ts                # NextAuth configuration (providers, callbacks, JWT)
 │   │   ├── prisma.ts              # Prisma client singleton (PrismaPg adapter)
+│   │   ├── ai.ts                  # Centralized AI config (model, temperature, system prompt)
+│   │   ├── a2a-client.ts          # A2A protocol client (fetchAgentCard, sendMessage, streamMessage)
 │   │   ├── admin.ts               # Admin utilities (requireAdmin, permissions, audit, error handling)
 │   │   └── utils.ts               # Tailwind `cn()` utility
 │   ├── stores/
@@ -234,7 +239,7 @@ SystemSetting (standalone key-value store)
 | `User`   | Application users with auth credentials              | `email` (unique), `password?`, `isActive`                   |
 | `Chat`   | Conversations belonging to a user                    | `title`, `visibility` (PUBLIC/PRIVATE), `isArchived`, `agentId?`, `folderId?` |
 | `Message` | Individual messages within a chat                   | `role` (USER/ASSISTANT/SYSTEM), `content`, `webSearch`, `deepReasoning`, `attachments` (JSON) |
-| `Agent`  | Custom AI personas with system prompts               | `name`, `description?`, `instructions` (system prompt)      |
+| `Agent`  | Custom AI personas with system prompts               | `name`, `description?`, `instructions` (system prompt), `isA2A`, `a2aUrl?`, `a2aAgentCard?` (JSON), `a2aBearerToken?` |
 | `Folder` | Organizational containers for chats                  | `name`, `userId`                                            |
 | `Vote`   | User feedback on messages (upvote/downvote)           | `isUpvoted`, unique constraint on `[messageId, userId]`     |
 
@@ -360,9 +365,10 @@ All API routes require authentication unless noted otherwise. Ownership is verif
 
 The stream endpoint:
 1. Saves the latest user message to the database
-2. Prepends agent system instructions if the chat has an associated agent
-3. Streams the AI response using `streamText()` from the Vercel AI SDK
-4. Saves the completed assistant message to the database via `onFinish`
+2. **If the chat uses an A2A remote agent**: forwards the message via the A2A protocol (`message/stream` or `message/send`) to the remote agent, streams the response back, and saves the full response to the database
+3. **If the chat uses a local agent**: prepends agent system instructions if the chat has an associated agent
+4. Streams the AI response using `streamText()` from the Vercel AI SDK
+5. Saves the completed assistant message to the database via `onFinish`
 
 ### Folder Endpoints
 
@@ -381,11 +387,32 @@ The stream endpoint:
 | POST   | `/api/agents`               | Create an agent        | User  |
 | PATCH  | `/api/agents/[agentId]`     | Update agent           | Owner |
 | DELETE | `/api/agents/[agentId]`     | Delete agent           | Owner |
+| POST   | `/api/agents/fetch-card`    | Fetch A2A Agent Card from remote URL | User |
 
-**POST/PATCH `/api/agents`** request body:
+**POST/PATCH `/api/agents`** request body (local agent):
 ```json
 { "name": "string", "description": "string", "instructions": "string (system prompt)" }
 ```
+
+**POST/PATCH `/api/agents`** request body (A2A remote agent):
+```json
+{
+  "name": "string",
+  "description": "string",
+  "instructions": "string",
+  "isA2A": true,
+  "a2aUrl": "https://remote-agent.example.com/a2a/agents/my-agent",
+  "a2aAgentCard": { /* Agent Card JSON */ },
+  "a2aBearerToken": "optional-bearer-token"
+}
+```
+
+**POST `/api/agents/fetch-card`** request body:
+```json
+{ "url": "https://remote-agent.example.com/a2a/agents/my-agent", "bearerToken": "optional" }
+```
+
+Returns the A2A Agent Card JSON if found, or a 422 error with details of all attempted locations.
 
 ### Admin Endpoints
 
@@ -518,7 +545,77 @@ All admin pages are Client Components that fetch data from `/api/admin/*` endpoi
 - **`AdminHeader`** -- Top bar with dynamic breadcrumbs based on URL path + theme toggle
 - **`StatsCard`** -- Reusable card showing a metric with optional icon, description, and trend percentage
 
-### AI Configuration (`src/lib/ai.ts`)
+## A2A (Agent2Agent) Remote Agents
+
+AI Chat Habitat supports the [A2A protocol](https://google.github.io/A2A/) for delegating conversations to remote AI agents over HTTP. This enables federation — your local chat UI can talk to any A2A-compliant agent running anywhere.
+
+### How It Works
+
+1. **Agent Card Discovery** — The user provides a remote agent's base URL. The system fetches the agent's metadata (Agent Card) from well-known locations:
+   - `<baseUrl>/.well-known/agent-card.json` (Agno-style)
+   - `<baseUrl>/.well-known/agent.json` (standard A2A spec)
+   - `<origin>/.well-known/agent-card.json` (root fallback)
+
+2. **Agent Creation** — The Agent Card (name, capabilities, skills, endpoint URL) is stored in the database alongside optional Bearer token credentials.
+
+3. **Message Flow** — When a user sends a message in a chat bound to an A2A agent:
+   - If the agent supports streaming: `message/stream` via SSE (Server-Sent Events)
+   - Otherwise: `message/send` (synchronous JSON-RPC)
+   - The response is streamed back to the user in real-time
+   - The full response text is saved to the database
+
+### A2A Client Library (`src/lib/a2a-client.ts`)
+
+The client library handles all A2A protocol communication:
+
+```typescript
+import {
+  fetchAgentCard,
+  sendMessage,
+  streamMessage,
+  supportsStreaming,
+  extractTaskResponse,
+} from '@/lib/a2a-client'
+
+// 1. Discover a remote agent
+const card = await fetchAgentCard('https://agent.example.com/a2a/agents/my-agent', 'optional-bearer-token')
+
+// 2. Check capabilities
+if (supportsStreaming(card)) {
+  // 3a. Stream a message (returns ReadableStream<Uint8Array>)
+  const stream = streamMessage(card, 'Hello!', { bearerToken: 'token' })
+} else {
+  // 3b. Send a message (returns A2ATask with full response)
+  const task = await sendMessage(card, 'Hello!', { bearerToken: 'token' })
+  const text = extractTaskResponse(task)
+}
+```
+
+### Compatibility
+
+The client is compatible with:
+- **Agno/AgentOS** — Separate REST endpoints (`message:send`, `message:stream`) with `agent-card.json`
+- **Standard A2A** — Single JSON-RPC endpoint with `agent.json`
+- **Google A2A SDK** — Protocol version 0.3.0 (`kind`-based parts, required `messageId`)
+
+### Agent Model Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `isA2A` | `Boolean` | Whether this is a remote A2A agent (default: `false`) |
+| `a2aUrl` | `String?` | Base URL of the remote A2A agent |
+| `a2aAgentCard` | `Json?` | Cached Agent Card metadata |
+| `a2aBearerToken` | `String?` | Optional Bearer token for authenticated endpoints |
+
+### UI
+
+- **AgentDialog** — Toggle between "Local" and "A2A Remote" agent types. For A2A: enter URL, click "Fetch" to discover the Agent Card, optionally provide a Bearer token.
+- **Sidebar** — A2A agents display a globe icon to distinguish them from local agents.
+- **Admin Panel** — Agent list shows "Local"/"A2A" type badges and auth status.
+
+---
+
+## AI Configuration (`src/lib/ai.ts`)
 
 The centralized AI configuration module reads settings from the `SystemSetting` database table:
 

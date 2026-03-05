@@ -15,6 +15,7 @@ Whether you're building an internal tool, a customer support bot, or a specializ
 ## Key Features
 
 - **Real-time AI Chat** -- Streaming responses with OpenAI integration via Vercel AI SDK
+- **A2A Remote Agents** -- Connect to any A2A-compliant (Agent2Agent protocol) remote agent with streaming support and Bearer token auth
 - **Custom Agents** -- Create specialized AI personas with custom system prompts and behaviors
 - **Multi-user Ready** -- Full authentication system with email/password and Google OAuth
 - **Admin Dashboard** -- Complete admin panel with user management, analytics, audit logs, and AI configuration
@@ -128,6 +129,7 @@ AI Chat Habitat is designed to be hacked and extended:
 
 - **Add new AI providers** -- Swap OpenAI for Anthropic, Google, or local models via the Vercel AI SDK
 - **Create custom agents** -- Define specialized AI behaviors with custom system prompts
+- **Connect remote A2A agents** -- Delegate to any A2A-protocol-compliant agent over HTTP (supports Agno, Google A2A SDK, and custom implementations)
 - **Extend the database** -- Add new models with Prisma migrations
 - **Build new features** -- The modular architecture makes it easy to add functionality
 - **Customize the UI** -- shadcn/ui components are fully customizable and copy-pasted into your project
