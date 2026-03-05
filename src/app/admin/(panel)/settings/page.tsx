@@ -27,8 +27,8 @@ interface SettingsState {
 }
 
 const DEFAULTS: SettingsState = {
-  default_model: 'gpt-4o',
-  title_model: 'gpt-4o-mini',
+  default_model: 'gpt-5-mini',
+  title_model: 'gpt-5-mini',
   system_prompt: '',
   max_tokens: 4096,
   temperature: 0.7,
@@ -149,10 +149,10 @@ export default function AdminSettingsPage() {
                 id="default_model"
                 value={settings.default_model}
                 onChange={(e) => update('default_model', e.target.value)}
-                placeholder="gpt-4o"
+                placeholder="gpt-5-mini"
               />
               <p className="text-xs text-muted-foreground">
-                OpenAI model used for chat completions (e.g. gpt-4o, gpt-4o-mini, o1)
+                OpenAI model used for chat completions (e.g. gpt-5-mini, gpt-5, o3-mini)
               </p>
             </div>
             <div className="space-y-2">
@@ -161,7 +161,7 @@ export default function AdminSettingsPage() {
                 id="title_model"
                 value={settings.title_model}
                 onChange={(e) => update('title_model', e.target.value)}
-                placeholder="gpt-4o-mini"
+                placeholder="gpt-5-mini"
               />
               <p className="text-xs text-muted-foreground">
                 Model used for auto-generating chat titles (use a cheaper model)

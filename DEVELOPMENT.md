@@ -634,8 +634,8 @@ const config = await getAIConfig()
 ```
 
 Defaults (used when no settings are configured):
-- Chat model: `gpt-4o`
-- Title model: `gpt-4o-mini`
+- Chat model: `gpt-5-mini`
+- Title model: `gpt-5-mini`
 - Max output tokens: `4096`
 - Temperature: `0.7`
 - System prompt: (empty)
@@ -757,8 +757,8 @@ To change the default model without the admin panel, update the `DEFAULT_CONFIG`
 
 ```typescript
 const DEFAULT_CONFIG: AIConfig = {
-  model: 'gpt-4o',        // Change this
-  titleModel: 'gpt-4o-mini',
+  model: 'gpt-5-mini',
+  titleModel: 'gpt-5-mini',
   systemPrompt: '',
   maxTokens: 4096,
   temperature: 0.7,

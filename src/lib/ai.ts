@@ -10,8 +10,8 @@ export interface AIConfig {
 }
 
 const DEFAULT_CONFIG: AIConfig = {
-  model: 'gpt-4o',
-  titleModel: 'gpt-4o-mini',
+  model: 'gpt-5-mini',
+  titleModel: 'gpt-5-mini',
   systemPrompt: '',
   maxTokens: 4096,
   temperature: 0.7,

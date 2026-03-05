@@ -34,12 +34,12 @@ async function main() {
     const defaultSettings = [
       {
         key: 'default_model',
-        value: 'gpt-4o',
+        value: 'gpt-5-mini',
         description: 'Default AI model for chat completions',
       },
       {
         key: 'title_model',
-        value: 'gpt-4o-mini',
+        value: 'gpt-5-mini',
         description: 'Model used for auto-generating chat titles',
       },
       {
