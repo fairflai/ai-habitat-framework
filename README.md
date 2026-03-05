@@ -14,32 +14,35 @@ Whether you're building an internal tool, a customer support bot, or a specializ
 
 ## Key Features
 
-- **Real-time AI Chat** - Streaming responses with OpenAI integration via Vercel AI SDK
-- **Custom Agents** - Create specialized AI personas with custom instructions and behaviors
-- **Multi-user Ready** - Full authentication system with email/password and OAuth support
-- **Admin Dashboard** - Complete admin panel with user management, analytics, and audit logs
-- **Role-Based Access Control** - Granular permissions system for enterprise use cases
-- **Folder Organization** - Organize conversations with a flexible folder structure
-- **Message Voting** - Collect feedback on AI responses
-- **Dark/Light Themes** - Built-in theming support
-- **Fully Self-Hosted** - Deploy anywhere, own your data
+- **Real-time AI Chat** -- Streaming responses with OpenAI integration via Vercel AI SDK
+- **Custom Agents** -- Create specialized AI personas with custom system prompts and behaviors
+- **Multi-user Ready** -- Full authentication system with email/password and Google OAuth
+- **Admin Dashboard** -- Complete admin panel with user management, analytics, and audit logs
+- **Role-Based Access Control** -- Granular RBAC permissions system for enterprise use cases
+- **Folder Organization** -- Organize conversations with a flexible folder structure
+- **Auto-generated Titles** -- AI-powered chat title generation from conversation context
+- **Message Voting** -- Collect feedback on AI responses (upvote/downvote)
+- **Dark/Light Themes** -- Built-in theming with system preference detection
+- **Fully Self-Hosted** -- Deploy anywhere, own your data
 
 ## Tech Stack
 
-| Category      | Technology                            |
-| ------------- | ------------------------------------- |
-| **Framework** | Next.js 16 (App Router, React 19)     |
-| **Database**  | PostgreSQL + Prisma ORM               |
-| **Auth**      | NextAuth.js v5                        |
-| **AI**        | Vercel AI SDK + OpenAI                |
+| Category      | Technology                             |
+| ------------- | -------------------------------------- |
+| **Framework** | Next.js 16.1 (App Router, React 19)   |
+| **Database**  | PostgreSQL 15+ with Prisma ORM 7.x    |
+| **Auth**      | NextAuth.js v5 (JWT strategy)         |
+| **AI**        | Vercel AI SDK 6.x + OpenAI            |
 | **UI**        | shadcn/ui + Radix UI + Tailwind CSS 4 |
-| **State**     | Zustand + TanStack Query              |
+| **State**     | Zustand + TanStack Query v5           |
+| **Forms**     | React Hook Form + Zod 4               |
+| **Runtime**   | Node.js 20+ / Bun                     |
 
 ## Quick Start
 
 ### Prerequisites
 
-- Node.js 20+
+- Node.js 20+ or Bun
 - PostgreSQL 15+
 - OpenAI API key
 
@@ -47,19 +50,23 @@ Whether you're building an internal tool, a customer support bot, or a specializ
 
 ```bash
 git clone <repository-url>
-cd ai-habitat-chat
-npm install
+cd ai-habitat-framework
+bun install        # or: npm install
 ```
 
 ### Configuration
 
-Create a `.env` file in the root directory:
+Copy the example environment file and fill in your values:
 
-```env
-DATABASE_URL="postgresql://user:password@localhost:5432/ai-habitat-chat?schema=public"
-AUTH_SECRET="your-secret-key"
-OPENAI_API_KEY="sk-..."
+```bash
+cp .env.example .env
 ```
+
+See [`.env.example`](./.env.example) for all available variables with descriptions. At minimum you need:
+
+- `DATABASE_URL` -- PostgreSQL connection string
+- `AUTH_SECRET` -- JWT signing secret (generate with `openssl rand -base64 32`)
+- `OPENAI_API_KEY` -- OpenAI API key
 
 ### Setup
 
@@ -74,24 +81,55 @@ npx prisma migrate dev
 npx tsx scripts/create-admin.ts admin@example.com "Admin" password123
 
 # Start the development server
-npm run dev
+bun dev            # or: npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000)
 
+## Project Structure
+
+```
+ai-habitat-framework/
+├── prisma/
+│   ├── schema.prisma              # Database schema (12 models)
+│   └── migrations/                # SQL migrations
+├── scripts/
+│   ├── create-admin.ts            # Create/promote admin users
+│   └── create-user.ts             # Create regular users
+├── src/
+│   ├── app/
+│   │   ├── (auth)/                # Login & logout pages
+│   │   ├── (chat)/                # Chat interface (home + /c/[chatId])
+│   │   ├── admin/                 # Admin panel (dashboard, users, agents, chats, audit, settings)
+│   │   └── api/                   # REST API routes (15 endpoints)
+│   ├── components/
+│   │   ├── admin/                 # Admin panel components
+│   │   ├── chat/                  # Chat UI components
+│   │   ├── providers/             # React context providers
+│   │   └── ui/                    # shadcn/ui component library
+│   ├── hooks/                     # React Query hooks for data fetching
+│   ├── lib/                       # Core utilities (auth, prisma, admin helpers)
+│   ├── stores/                    # Zustand state stores
+│   ├── types/                     # TypeScript type definitions
+│   └── middleware.ts              # Auth & route protection middleware
+├── next.config.ts
+├── prisma.config.ts
+└── tsconfig.json
+```
+
 ## Documentation
 
-For detailed development documentation, database schema, API reference, and customization guides, see [DEVELOPMENT.md](./DEVELOPMENT.md).
+For detailed development documentation, database schema, API reference, and customization guides, see **[DEVELOPMENT.md](./DEVELOPMENT.md)**.
 
 ## Extensibility
 
 AI Chat Habitat is designed to be hacked and extended:
 
-- **Add new AI providers** - Swap OpenAI for Anthropic, Google, or local models
-- **Create custom agents** - Define specialized AI behaviors with custom system prompts
-- **Extend the database** - Add new models with Prisma migrations
-- **Build new features** - The modular architecture makes it easy to add functionality
-- **Customize the UI** - shadcn/ui components are fully customizable
+- **Add new AI providers** -- Swap OpenAI for Anthropic, Google, or local models via the Vercel AI SDK
+- **Create custom agents** -- Define specialized AI behaviors with custom system prompts
+- **Extend the database** -- Add new models with Prisma migrations
+- **Build new features** -- The modular architecture makes it easy to add functionality
+- **Customize the UI** -- shadcn/ui components are fully customizable and copy-pasted into your project
 
 ## Use Cases
 
@@ -108,15 +146,17 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## License
 
-This project is licensed under the **GNU Lesser General Public License v3.0 (LGPL-3.0)**.
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**.
 
-This means you can:
+This means:
 
-- Use this software in your own projects (including commercial ones)
-- Modify and distribute the source code
-- Link to this library from proprietary software
+- You can use, modify, and distribute this software freely
+- If you run a modified version as a network service (e.g., SaaS), you **must** release the source code of your modifications under AGPL-3.0
+- Derivative works must retain the same license
 
-If you modify AI Chat Habitat itself, you must release those modifications under LGPL-3.0.
+### Commercial / Dual Licensing
+
+If the AGPL-3.0 terms don't fit your use case (e.g., you want to embed AI Chat Habitat in a proprietary product without disclosing source code), a **commercial license** is available. Contact [Fairflai](https://fairflai.com/) for details.
 
 See [LICENSE](./LICENSE) for the full license text.
 
