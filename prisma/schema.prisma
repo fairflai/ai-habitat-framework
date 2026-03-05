@@ -7,26 +7,26 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  name          String?
-  password      String?   // Per auth credentials
-  isActive      Boolean   @default(true)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  password  String? // Per auth credentials
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   // RBAC
-  roleId        String?
-  role          Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  roleId String?
+  role   Role?   @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
-  chats         Chat[]
-  messages      Message[]
-  votes         Vote[]
-  folders       Folder[]
-  agents        Agent[]
-  accounts      Account[] // Per OAuth providers
-  sessions      Session[]
-  auditLogs     AuditLog[]
+  chats     Chat[]
+  messages  Message[]
+  votes     Vote[]
+  folders   Folder[]
+  agents    Agent[]
+  accounts  Account[] // Per OAuth providers
+  sessions  Session[]
+  auditLogs AuditLog[]
 }
 
 model Account {
@@ -62,72 +62,71 @@ model Folder {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  chats     Chat[]
+  chats Chat[]
 }
 
 model Chat {
-  id          String     @id @default(cuid())
-  title       String
-  visibility  Visibility @default(PRIVATE)
-  isArchived  Boolean    @default(false)
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id         String     @id @default(cuid())
+  title      String
+  visibility Visibility @default(PRIVATE)
+  isArchived Boolean    @default(false)
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
 
-  userId      String
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  folderId    String?
-  folder      Folder?    @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  folderId String?
+  folder   Folder? @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
-  agentId     String?
-  agent       Agent?     @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  agentId String?
+  agent   Agent?  @relation(fields: [agentId], references: [id], onDelete: SetNull)
 
-  messages    Message[]
-  votes       Vote[]
+  messages Message[]
+  votes    Vote[]
 }
 
 model Message {
-  id          String      @id @default(cuid())
-  role        MessageRole
-  content     String      @db.Text
-  createdAt   DateTime    @default(now())
+  id        String      @id @default(cuid())
+  role      MessageRole
+  content   String      @db.Text
+  createdAt DateTime    @default(now())
 
   // Tools configuration
-  webSearch       Boolean @default(false)
-  deepReasoning   Boolean @default(false)
+  webSearch     Boolean @default(false)
+  deepReasoning Boolean @default(false)
 
   // Attachments stored as JSON
   attachments Json?
 
-  chatId      String
-  chat        Chat        @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
-  userId      String?
-  user        User?       @relation(fields: [userId], references: [id])
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id])
 
-  votes       Vote[]
+  votes Vote[]
 }
 
 model Vote {
-  id          String   @id @default(cuid())
-  isUpvoted   Boolean
-  createdAt   DateTime @default(now())
+  id        String   @id @default(cuid())
+  isUpvoted Boolean
+  createdAt DateTime @default(now())
 
-  messageId   String
-  message     Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  messageId String
+  message   Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
 
-  chatId      String
-  chat        Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  chatId String
+  chat   Chat   @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
 
   @@unique([messageId, userId])
 }
-
 
 model Agent {
   id           String   @id @default(cuid())
@@ -137,10 +136,10 @@ model Agent {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  chats        Chat[]
+  chats Chat[]
 }
 
 enum Visibility {
@@ -160,7 +159,7 @@ enum MessageRole {
 
 model Role {
   id          String       @id @default(cuid())
-  name        String       @unique  // "admin", "moderator", "user"
+  name        String       @unique // "admin", "moderator", "user"
   description String?
   permissions Permission[]
   users       User[]
@@ -170,7 +169,7 @@ model Role {
 
 model Permission {
   id          String   @id @default(cuid())
-  name        String   @unique  // "users.read", "users.write", "chats.delete", etc.
+  name        String   @unique // "users.read", "users.write", "chats.delete", etc.
   description String?
   roles       Role[]
   createdAt   DateTime @default(now())
@@ -181,17 +180,17 @@ model Permission {
 // ============================================
 
 model AuditLog {
-  id        String   @id @default(cuid())
-  action    String   // "user.created", "chat.deleted", etc.
-  target    String?  // ID dell'entità modificata
+  id         String   @id @default(cuid())
+  action     String // "user.created", "chat.deleted", etc.
+  target     String? // ID dell'entità modificata
   targetType String? // "user", "chat", "agent", etc.
-  metadata  Json?    // Dettagli aggiuntivi
-  ipAddress String?
-  userAgent String?
-  createdAt DateTime @default(now())
+  metadata   Json? // Dettagli aggiuntivi
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
 
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([action])
   @@index([userId])
@@ -200,7 +199,7 @@ model AuditLog {
 
 model SystemSetting {
   id          String   @id @default(cuid())
-  key         String   @unique  // "default_model", "max_tokens", etc.
+  key         String   @unique // "default_model", "max_tokens", etc.
   value       Json
   description String?
   createdAt   DateTime @default(now())
